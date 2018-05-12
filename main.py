@@ -197,11 +197,12 @@ def train(X, n_output, decoder_output, margin_loss, y, y_pred, mask_with_labels,
             for iteration in range(1, int(n_iterations_per_epoch + 1)):
                 X_batch, y_batch = next_batch(batch_size, X_train, Y_train)
                 # Run the training operation and measure the loss:
-                _, loss_train = sess.run(
-                    [training_op, loss],
-                    feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
-                               y: y_batch,
-                               mask_with_labels: True})
+                with tf.device('/gpu:0'):
+                    _, loss_train = sess.run(
+                        [training_op, loss],
+                        feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
+                                   y: y_batch,
+                                   mask_with_labels: True})
                 print("\rIteration: {}/{} ({:.1f}%)  Loss: {:.5f}".format(
                           iteration, n_iterations_per_epoch,
                           iteration * 100 / n_iterations_per_epoch,
@@ -214,16 +215,17 @@ def train(X, n_output, decoder_output, margin_loss, y, y_pred, mask_with_labels,
             acc_vals = []
             for iteration in range(1, int(n_iterations_validation + 1)):
                 X_batch, y_batch = next_batch(batch_size, X_test, Y_test)
-                loss_val, acc_val = sess.run(
-                        [loss, accuracy],
-                        feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
-                                   y: y_batch})
-                loss_vals.append(loss_val)
-                acc_vals.append(acc_val)
-                print("\rEvaluating the model: {}/{} ({:.1f}%)".format(
-                          iteration, n_iterations_validation,
-                          iteration * 100 / n_iterations_validation),
-                      end=" " * 10)
+                with tf.device('/gpu:0'):
+                    loss_val, acc_val = sess.run(
+                            [loss, accuracy],
+                            feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
+                                       y: y_batch})
+                    loss_vals.append(loss_val)
+                    acc_vals.append(acc_val)
+                    print("\rEvaluating the model: {}/{} ({:.1f}%)".format(
+                              iteration, n_iterations_validation,
+                              iteration * 100 / n_iterations_validation),
+                          end=" " * 10)
             loss_val = np.mean(loss_vals)
             acc_val = np.mean(acc_vals)
             print("\rEpoch: {}  Val accuracy: {:.4f}%  Loss: {:.6f}{}".format(
@@ -232,8 +234,9 @@ def train(X, n_output, decoder_output, margin_loss, y, y_pred, mask_with_labels,
 
             # And save the model if it improved:
             if loss_val < best_loss_val:
-                save_path = saver.save(sess, checkpoint_path)
-                best_loss_val = loss_val
+                with tf.device('/cpu:0'):
+                    save_path = saver.save(sess, checkpoint_path)
+                    best_loss_val = loss_val
 
 def __main__():
     #########################################################
@@ -299,7 +302,8 @@ def __main__():
     with tf.device('/gpu:0'):
         n_output, decoder_output = decoder(decoder_input)
         X_train, Y_train, X_test, Y_test, nb_classes = load_data()
-        train(X, n_output, decoder_output, margin_loss, y, y_pred, mask_with_labels, X_train, Y_train, X_test, Y_test, nb_classes)
+
+    train(X, n_output, decoder_output, margin_loss, y, y_pred, mask_with_labels, X_train, Y_train, X_test, Y_test, nb_classes)
 
 if __name__ == '__main__':
     __main__()
