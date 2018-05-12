@@ -239,62 +239,67 @@ def __main__():
     #########################################################
     ## PRIMARY CAPSULES                                   ###
     #########################################################
-    X = tf.placeholder(shape=[None, 28, 28, 1], dtype=tf.float32, name="X")
+    with tf.device('/gpu:0'):
+        X = tf.placeholder(shape=[None, 28, 28, 1], dtype=tf.float32, name="X")
 
-    caps1_n_maps = 32
-    caps1_n_caps = caps1_n_maps * 6 * 6  # 1152 primary capsules
-    caps1_n_dims = 8
+        caps1_n_maps = 32
+        caps1_n_caps = caps1_n_maps * 6 * 6  # 1152 primary capsules
+        caps1_n_dims = 8
 
-    caps2_n_caps = 72
-    caps2_n_dims = 16
+        caps2_n_caps = 72
+        caps2_n_dims = 16
 
-    conv1_params = {
-        "filters": 256,
-        "kernel_size": 9,
-        "strides": 1,
-        "padding": "valid",
-        "activation": tf.nn.relu,
-    }
+        conv1_params = {
+            "filters": 256,
+            "kernel_size": 9,
+            "strides": 1,
+            "padding": "valid",
+            "activation": tf.nn.relu,
+        }
 
-    conv2_params = {
-        "filters": caps1_n_maps * caps1_n_dims, # 256 convolutional filters
-        "kernel_size": 9,
-        "strides": 2,
-        "padding": "valid",
-        "activation": tf.nn.relu
-    }
+        conv2_params = {
+            "filters": caps1_n_maps * caps1_n_dims, # 256 convolutional filters
+            "kernel_size": 9,
+            "strides": 2,
+            "padding": "valid",
+            "activation": tf.nn.relu
+        }
 
-    conv1 = tf.layers.conv2d(X, name="conv1", **conv1_params)
-    conv2 = tf.layers.conv2d(conv1, name="conv2", **conv2_params)
+        conv1 = tf.layers.conv2d(X, name="conv1", **conv1_params)
+        conv2 = tf.layers.conv2d(conv1, name="conv2", **conv2_params)
 
-    caps1_raw = tf.reshape(conv2, [-1, caps1_n_caps, caps1_n_dims], name="caps1_raw")
-    caps1_output = squash(caps1_raw, name="caps1_output")
+        caps1_raw = tf.reshape(conv2, [-1, caps1_n_caps, caps1_n_dims], name="caps1_raw")
+        caps1_output = squash(caps1_raw, name="caps1_output")
 
-    #########################################################
-    ## DIGIT CAPSULES                                     ###
-    #########################################################
-    init_sigma = 0.1
-    W_init = tf.random_normal(
-        shape=(1, caps1_n_caps, caps2_n_caps, caps2_n_dims, caps1_n_dims),
-        stddev=init_sigma, dtype=tf.float32, name="W_init")
-    W = tf.Variable(W_init, name="W")
+        #########################################################
+        ## DIGIT CAPSULES                                     ###
+        #########################################################
+        init_sigma = 0.1
+        W_init = tf.random_normal(
+            shape=(1, caps1_n_caps, caps2_n_caps, caps2_n_dims, caps1_n_dims),
+            stddev=init_sigma, dtype=tf.float32, name="W_init")
+        W = tf.Variable(W_init, name="W")
 
-    batch_size = tf.shape(X)[0]
-    W_tiled = tf.tile(W, [batch_size, 1, 1, 1, 1], name="W_tiled")
+        batch_size = tf.shape(X)[0]
+        W_tiled = tf.tile(W, [batch_size, 1, 1, 1, 1], name="W_tiled")
 
-    caps1_output_expanded = tf.expand_dims(caps1_output, -1, name="caps1_output_expanded")
-    caps1_output_tile = tf.expand_dims(caps1_output_expanded, 2, name="caps1_output_tile")
-    caps1_output_tiled = tf.tile(caps1_output_tile, [1, 1, caps2_n_caps, 1, 1], name="caps1_output_tiled")
+        caps1_output_expanded = tf.expand_dims(caps1_output, -1, name="caps1_output_expanded")
+        caps1_output_tile = tf.expand_dims(caps1_output_expanded, 2, name="caps1_output_tile")
+        caps1_output_tiled = tf.tile(caps1_output_tile, [1, 1, caps2_n_caps, 1, 1], name="caps1_output_tiled")
 
-    caps2_predicted = tf.matmul(W_tiled, caps1_output_tiled, name="caps2_predicted")
+        caps2_predicted = tf.matmul(W_tiled, caps1_output_tiled, name="caps2_predicted")
 
-    caps2_output = routing_by_agreement(batch_size, caps1_n_caps, caps2_n_caps, caps2_predicted)
-    y, margin_loss = get_margin_loss(caps2_n_caps, caps2_output)
-    y_pred = estimated_class_probability(caps2_output)
-    decoder_input, mask_with_labels = mask(y, y_pred, caps2_n_caps, caps2_output, caps2_n_dims)
-    n_output, decoder_output = decoder(decoder_input)
-    X_train, Y_train, X_test, Y_test, nb_classes = load_data()
-    train(X, n_output, decoder_output, margin_loss, y, y_pred, mask_with_labels, X_train, Y_train, X_test, Y_test, nb_classes)
+        caps2_output = routing_by_agreement(batch_size, caps1_n_caps, caps2_n_caps, caps2_predicted)
+        y, margin_loss = get_margin_loss(caps2_n_caps, caps2_output)
+        y_pred = estimated_class_probability(caps2_output)
+
+    with tf.device('/cpu:0'):
+        decoder_input, mask_with_labels = mask(y, y_pred, caps2_n_caps, caps2_output, caps2_n_dims)
+
+    with tf.device('/gpu:0'):
+        n_output, decoder_output = decoder(decoder_input)
+        X_train, Y_train, X_test, Y_test, nb_classes = load_data()
+        train(X, n_output, decoder_output, margin_loss, y, y_pred, mask_with_labels, X_train, Y_train, X_test, Y_test, nb_classes)
 
 if __name__ == '__main__':
     __main__()
